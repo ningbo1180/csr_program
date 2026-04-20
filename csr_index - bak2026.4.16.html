@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSR GenAI - 智能临床研究报告生成平台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+        * { font-family: 'Inter', sans-serif; }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glow-border {
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+        }
+
+        .ai-pulse {
+            animation: pulse-glow 2s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(56, 189, 248, 0.5); }
+            50% { box-shadow: 0 0 20px rgba(56, 189, 248, 0.8); }
+        }
+
+        .section-tree::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .section-tree::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+        }
+
+        .section-tree::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.5);
+            border-radius: 3px;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #0ea5e9 0%, #22d3ee 100%);
+            transition: width 0.5s ease;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-pending { background: #fbbf24; }
+        .status-processing { background: #38bdf8; animation: blink 1s infinite; }
+        .status-complete { background: #34d399; }
+        .status-error { background: #f87171; }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .hover-lift:hover {
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+        }
+
+        .source-badge {
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .source-protocol { background: rgba(168, 85, 247, 0.2); color: #c4b5fd; }
+        .source-sap { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .source-tfl { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+
+        .editor-container {
+            background: #0f172a;
+            border: 1px solid #334155;
+        }
+
+        .section-item {
+            transition: all 0.2s ease;
+        }
+
+        .section-item.active {
+            background: rgba(56, 189, 248, 0.15);
+            border-left: 3px solid #38bdf8;
+        }
+    </style>
+<base target="_blank">
+</head>
+<body class="gradient-bg text-slate-200 min-h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="glass-panel h-16 flex items-center justify-between px-6 fixed top-0 left-0 right-0 z-50">
+        <div class="flex items-center gap-4">
+            <div class="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center">
+                <i class="fas fa-file-medical-alt text-white text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-white tracking-tight">CSR GenAI</h1>
+                <p class="text-xs text-slate-400">智能临床研究报告生成平台</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-3 bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-700">
+                <span class="text-xs text-slate-400">项目:</span>
+                <span class="text-sm font-medium text-white">Santen-2024-GLA</span>
+                <span class="status-dot status-processing ml-2"></span>
+                <span class="text-xs text-cyan-400">生成中 68%</span>
+            </div>
+
+            <div class="flex gap-2">
+                <button class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm transition-colors border border-slate-700">
+                    <i class="fas fa-history mr-2"></i>版本历史
+                </button>
+                <button class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-sm transition-colors shadow-lg shadow-cyan-500/25">
+                    <i class="fas fa-download mr-2"></i>导出CSR
+                </button>
+            </div>
+
+            <div class="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center text-xs font-bold">
+                NB
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="flex h-screen pt-16">
+
+        <!-- Left Panel: Input Sources -->
+        <aside class="w-80 glass-panel border-r border-slate-700 flex flex-col">
+            <div class="p-4 border-b border-slate-700">
+                <h2 class="text-sm font-semibold text-white mb-3 flex items-center">
+                    <i class="fas fa-database mr-2 text-cyan-400"></i>
+                    输入数据源
+                </h2>
+
+                <div class="space-y-3">
+                    <!-- Protocol Upload -->
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700 hover:border-purple-500/50 transition-colors cursor-pointer group">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 rounded bg-purple-500/20 flex items-center justify-center">
+                                    <i class="fas fa-file-contract text-purple-400 text-sm"></i>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-medium text-white">Protocol</div>
+                                    <div class="text-xs text-slate-400">研究方案</div>
+                                </div>
+                            </div>
+                            <i class="fas fa-check-circle text-green-400"></i>
+                        </div>
+                        <div class="text-xs text-slate-500 truncate">Protocol_v2.3_20240315.pdf</div>
+                        <div class="mt-2 flex gap-1">
+                            <span class="source-badge source-protocol">已解析</span>
+                            <span class="source-badge source-protocol">45章节</span>
+                        </div>
+                    </div>
+
+                    <!-- SAP Upload -->
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700 hover:border-blue-500/50 transition-colors cursor-pointer group">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 rounded bg-blue-500/20 flex items-center justify-center">
+                                    <i class="fas fa-calculator text-blue-400 text-sm"></i>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-medium text-white">SAP</div>
+                                    <div class="text-xs text-slate-400">统计分析计划</div>
+                                </div>
+                            </div>
+                            <i class="fas fa-check-circle text-green-400"></i>
+                        </div>
+                        <div class="text-xs text-slate-500 truncate">SAP_Final_v1.2.docx</div>
+                        <div class="mt-2 flex gap-1">
+                            <span class="source-badge source-sap">已解析</span>
+                            <span class="source-badge source-sap">12表格</span>
+                        </div>
+                    </div>
+
+                    <!-- TFLs Upload -->
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700 hover:border-emerald-500/50 transition-colors cursor-pointer group">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 rounded bg-emerald-500/20 flex items-center justify-center">
+                                    <i class="fas fa-chart-bar text-emerald-400 text-sm"></i>
+                                </div>
+                                <div>
+                                    <div class="text-sm font-medium text-white">TFLs</div>
+                                    <div class="text-xs text-slate-400">图表列表</div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <span class="status-dot status-processing"></span>
+                            </div>
+                        </div>
+                        <div class="text-xs text-slate-500">24个文件 (正在处理...)</div>
+                        <div class="mt-2 w-full bg-slate-700 rounded-full h-1">
+                            <div class="progress-bar h-1 rounded-full" style="width: 75%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="w-full mt-4 py-2 border border-dashed border-slate-600 rounded-lg text-sm text-slate-400 hover:border-cyan-500 hover:text-cyan-400 transition-colors">
+                    <i class="fas fa-plus mr-2"></i>添加更多文档
+                </button>
+            </div>
+
+            <!-- AI Configuration -->
+            <div class="p-4 border-b border-slate-700">
+                <h2 class="text-sm font-semibold text-white mb-3 flex items-center">
+                    <i class="fas fa-robot mr-2 text-cyan-400"></i>
+                    AI 生成配置
+                </h2>
+
+                <div class="space-y-3 text-sm">
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-400">输出语言</span>
+                        <select class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs">
+                            <option>中文 (主要)</option>
+                            <option>English</option>
+                            <option>中英双语</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-400">表格方向</span>
+                        <div class="flex bg-slate-800 rounded p-1">
+                            <button class="px-2 py-1 rounded bg-cyan-600 text-white text-xs">自动</button>
+                            <button class="px-2 py-1 rounded text-slate-400 text-xs">纵向</button>
+                            <button class="px-2 py-1 rounded text-slate-400 text-xs">横向</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <span class="text-slate-400">去重级别</span>
+                        <select class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-xs">
+                            <option>严格 (推荐)</option>
+                            <option>标准</option>
+                            <option>宽松</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-2 mt-3">
+                        <input type="checkbox" checked class="rounded bg-slate-800 border-slate-600 text-cyan-500">
+                        <span class="text-xs text-slate-300">启用超链接追踪</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operation Log -->
+            <div class="flex-1 overflow-hidden flex flex-col">
+                <div class="p-3 border-b border-slate-700 bg-slate-800/30">
+                    <h3 class="text-xs font-semibold text-slate-300">操作日志 (可追溯)</h3>
+                </div>
+                <div class="flex-1 overflow-y-auto p-3 space-y-2 text-xs section-tree">
+                    <div class="flex gap-2 text-slate-400">
+                        <span class="text-slate-600">13:42</span>
+                        <span>系统: 开始解析TFLs...</span>
+                    </div>
+                    <div class="flex gap-2 text-slate-400">
+                        <span class="text-slate-600">13:38</span>
+                        <span>AI: 完成Section 10.2生成</span>
+                    </div>
+                    <div class="flex gap-2 text-slate-400">
+                        <span class="text-slate-600">13:35</span>
+                        <span>用户: 上传SAP文档</span>
+                    </div>
+                    <div class="flex gap-2 text-emerald-400">
+                        <span class="text-slate-600">13:30</span>
+                        <span>系统: Protocol解析完成</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center Panel: CSR Structure -->
+        <main class="flex-1 flex flex-col min-w-0">
+            <!-- Toolbar -->
+            <div class="h-12 bg-slate-900/50 border-b border-slate-700 flex items-center px-4 gap-4">
+                <div class="flex items-center gap-2">
+                    <button class="p-2 hover:bg-slate-800 rounded text-slate-400 hover:text-white transition-colors">
+                        <i class="fas fa-expand-arrows-alt"></i>
+                    </button>
+                    <span class="text-sm text-slate-300">CSR 结构树</span>
+                    <span class="text-xs text-slate-500">(共 12 个主要章节)</span>
+                </div>
+
+                <div class="flex-1"></div>
+
+                <div class="flex gap-2">
+                    <button class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white transition-colors border border-slate-700">
+                        <i class="fas fa-magic mr-1"></i>AI补全
+                    </button>
+                    <button class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded text-xs text-white transition-colors border border-slate-700">
+                        <i class="fas fa-check-double mr-1"></i>一致性检查
+                    </button>
+                </div>
+            </div>
+
+            <!-- Split View: Tree + Editor -->
+            <div class="flex-1 flex overflow-hidden">
+                <!-- Section Tree -->
+                <div class="w-80 border-r border-slate-700 bg-slate-900/30 overflow-y-auto section-tree">
+                    <div class="p-3 space-y-1">
+
+                        <!-- Title Page -->
+                        <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-file-alt text-slate-500 text-xs"></i>
+                                <span class="text-sm text-slate-300">1. 标题页</span>
+                            </div>
+                            <i class="fas fa-check text-emerald-500 text-xs opacity-0 group-hover:opacity-100"></i>
+                        </div>
+
+                        <!-- TOC -->
+                        <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-list text-slate-500 text-xs"></i>
+                                <span class="text-sm text-slate-300">2. 目录</span>
+                            </div>
+                            <span class="text-xs text-cyan-400">Auto</span>
+                        </div>
+
+                        <!-- Section 8 -->
+                        <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-bullseye text-slate-500 text-xs"></i>
+                                <span class="text-sm text-slate-300">8. 试验目的</span>
+                            </div>
+                            <span class="source-badge source-protocol">Protocol</span>
+                        </div>
+
+                        <!-- Section 10 - Expanded -->
+                        <div class="space-y-1">
+                            <div class="section-item active p-2 rounded cursor-pointer flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-chevron-down text-cyan-400 text-xs"></i>
+                                    <span class="text-sm font-medium text-white">10. 研究计划</span>
+                                </div>
+                                <span class="status-dot status-processing"></span>
+                            </div>
+
+                            <div class="ml-4 space-y-1 border-l border-slate-700 pl-3">
+                                <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                                    <span class="text-sm text-slate-300">10.1 整体研究设计和计划</span>
+                                    <span class="source-badge source-protocol">Protocol</span>
+                                </div>
+
+                                <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 border-l-2 border-cyan-500 bg-cyan-500/5">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <span class="text-sm text-white font-medium">10.2 研究设计讨论</span>
+                                        <span class="status-dot status-processing"></span>
+                                    </div>
+                                    <div class="flex gap-1 mt-1">
+                                        <span class="source-badge source-protocol">Protocol</span>
+                                        <span class="source-badge source-sap">SAP</span>
+                                    </div>
+                                </div>
+
+                                <div class="ml-3 space-y-1 text-xs text-slate-400">
+                                    <div class="p-1 hover:text-white cursor-pointer">10.2.1 研究设计</div>
+                                    <div class="p-1 hover:text-white cursor-pointer">10.2.2 阳性对照</div>
+                                    <div class="p-1 hover:text-white cursor-pointer">10.2.3 观察期</div>
+                                    <div class="p-1 hover:text-white cursor-pointer">10.2.4 治疗期</div>
+                                </div>
+
+                                <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between">
+                                    <span class="text-sm text-slate-300">10.3 适应症范围</span>
+                                    <span class="source-badge source-protocol">Protocol</span>
+                                </div>
+
+                                <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between">
+                                    <span class="text-sm text-slate-300">10.4 研究人群的选择</span>
+                                    <span class="source-badge source-protocol">Protocol</span>
+                                </div>
+
+                                <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between">
+                                    <span class="text-sm text-slate-300">10.5 有效性测定</span>
+                                    <div class="flex gap-1">
+                                        <span class="source-badge source-protocol">Protocol</span>
+                                        <span class="source-badge source-tfl">TFLs</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Section 11 -->
+                        <div class="space-y-1">
+                            <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-chevron-right text-slate-500 text-xs"></i>
+                                    <span class="text-sm text-slate-300">11. 结果</span>
+                                </div>
+                                <span class="text-xs text-slate-500">待生成</span>
+                            </div>
+                        </div>
+
+                        <!-- Section 11.2 -->
+                        <div class="space-y-1">
+                            <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                                <div class="flex items-center gap-2">
+                                    <i class="fas fa-chevron-right text-slate-500 text-xs"></i>
+                                    <span class="text-sm text-slate-300">11.2 有效性评价</span>
+                                </div>
+                                <span class="text-xs text-slate-500">待生成</span>
+                            </div>
+                        </div>
+
+                        <!-- Appendix -->
+                        <div class="section-item p-2 rounded cursor-pointer hover:bg-slate-800 flex items-center justify-between group">
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-paperclip text-slate-500 text-xs"></i>
+                                <span class="text-sm text-slate-300">12. 附录</span>
+                            </div>
+                            <span class="source-badge source-tfl">S1-S4</span>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Editor Area -->
+                <div class="flex-1 flex flex-col bg-slate-950">
+                    <!-- Breadcrumb -->
+                    <div class="h-10 border-b border-slate-800 flex items-center px-4 gap-2 text-sm">
+                        <span class="text-slate-500">CSR</span>
+                        <i class="fas fa-chevron-right text-slate-600 text-xs"></i>
+                        <span class="text-slate-500">Section 10</span>
+                        <i class="fas fa-chevron-right text-slate-600 text-xs"></i>
+                        <span class="text-cyan-400 font-medium">10.2 研究设计讨论</span>
+                        <div class="ml-auto flex gap-2">
+                            <span class="text-xs px-2 py-1 rounded bg-purple-500/20 text-purple-300">Protocol §3.1</span>
+                            <span class="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300">SAP §5.2</span>
+                        </div>
+                    </div>
+
+                    <!-- Editor Toolbar -->
+                    <div class="h-10 border-b border-slate-800 flex items-center px-4 gap-4 bg-slate-900/30">
+                        <div class="flex gap-1">
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-slate-400"><i class="fas fa-bold text-xs"></i></button>
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-slate-400"><i class="fas fa-italic text-xs"></i></button>
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-slate-400"><i class="fas fa-underline text-xs"></i></button>
+                        </div>
+                        <div class="w-px h-4 bg-slate-700"></div>
+                        <div class="flex gap-1">
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-cyan-400" title="Insert Table">
+                                <i class="fas fa-table text-xs"></i>
+                            </button>
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-slate-400" title="Insert Figure">
+                                <i class="fas fa-image text-xs"></i>
+                            </button>
+                            <button class="p-1.5 hover:bg-slate-800 rounded text-slate-400" title="Insert Link">
+                                <i class="fas fa-link text-xs"></i>
+                            </button>
+                        </div>
+                        <div class="w-px h-4 bg-slate-700"></div>
+                        <button class="px-3 py-1 bg-cyan-600/20 text-cyan-400 rounded text-xs hover:bg-cyan-600/30 transition-colors">
+                            <i class="fas fa-wand-magic-sparkles mr-1"></i>AI润色
+                        </button>
+                    </div>
+
+                    <!-- Content Area -->
+                    <div class="flex-1 overflow-y-auto p-6">
+                        <div class="max-w-3xl mx-auto">
+                            <h2 class="text-2xl font-bold text-white mb-6">10.2 研究设计讨论，包括对照组选择</h2>
+
+                            <div class="space-y-4 text-slate-300 leading-relaxed">
+                                <p class="text-sm text-slate-400 italic mb-4 border-l-2 border-cyan-500 pl-3">
+                                    [本章节内容基于Protocol Section 3.1和SAP Section 5.2自动生成，已进行去重处理]
+                                </p>
+
+                                <h3 class="text-lg font-semibold text-white mt-6">10.2.1 研究设计</h3>
+                                <p>
+                                    本研究是一项多中心、随机、双盲、阳性对照的III期临床试验，旨在评估试验药物XXX滴眼液在对照药物YYY滴眼液治疗青光眼和高眼压症患者中的有效性和安全性。
+                                </p>
+                                <p>
+                                    研究设计采用平行组设计，受试者将按照1:1的比例随机分配至试验组或对照组。研究包括4周的筛选期、4周的治疗期和1周的随访期。
+                                </p>
+
+                                <div class="my-6 p-4 bg-slate-900 rounded-lg border border-slate-700">
+                                    <div class="flex items-center justify-between mb-3">
+                                        <span class="text-sm font-medium text-white">表 1: 研究设计和主要终点概述</span>
+                                        <div class="flex gap-2">
+                                            <button class="text-xs text-cyan-400 hover:text-cyan-300">
+                                                <i class="fas fa-sync mr-1"></i>从SAP更新
+                                            </button>
+                                            <button class="text-xs text-slate-500 hover:text-slate-300">
+                                                <i class="fas fa-edit mr-1"></i>编辑
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm text-left text-slate-300">
+                                            <thead class="text-xs text-slate-400 uppercase bg-slate-800">
+                                                <tr>
+                                                    <th class="px-4 py-2 rounded-tl-lg">参数</th>
+                                                    <th class="px-4 py-2">试验组</th>
+                                                    <th class="px-4 py-2">对照组</th>
+                                                    <th class="px-4 py-2 rounded-tr-lg">备注</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-slate-800">
+                                                <tr>
+                                                    <td class="px-4 py-2 font-medium">给药方案</td>
+                                                    <td class="px-4 py-2">XXX 0.002%</td>
+                                                    <td class="px-4 py-2">YYY 0.005%</td>
+                                                    <td class="px-4 py-2 text-slate-500">每日一次</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="px-4 py-2 font-medium">主要终点</td>
+                                                    <td class="px-4 py-2" colspan="2">第4周IOP较基线变化</td>
+                                                    <td class="px-4 py-2 text-slate-500">非劣效设计</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="px-4 py-2 font-medium">样本量</td>
+                                                    <td class="px-4 py-2">150</td>
+                                                    <td class="px-4 py-2">150</td>
+                                                    <td class="px-4 py-2 text-slate-500">考虑20%脱落率</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="mt-2 text-xs text-slate-500">
+                                        <i class="fas fa-link mr-1"></i>
+                                        数据来源: SAP Table 5.1, Protocol Table 3-1 | 
+                                        <span class="text-cyan-400 cursor-pointer hover:underline">查看原始数据</span>
+                                    </div>
+                                </div>
+
+                                <h3 class="text-lg font-semibold text-white mt-6">10.2.2 阳性对照</h3>
+                                <p>
+                                    选择YYY滴眼液作为阳性对照药物是基于以下考虑：该药物已在中国获批用于青光眼和高眼压症的治疗，具有良好的疗效和安全性记录。采用阳性对照设计可以更好地评估试验药物的相对疗效和安全性，符合伦理要求。
+                                </p>
+
+                                <div class="flex gap-3 mt-6 p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-lg">
+                                    <i class="fas fa-lightbulb text-cyan-400 mt-1"></i>
+                                    <div>
+                                        <div class="text-sm font-medium text-cyan-400 mb-1">AI建议</div>
+                                        <div class="text-sm text-slate-400">
+                                            检测到Protocol Section 3.2中有关于对照组选择的更详细伦理考量说明。是否添加到此章节？
+                                        </div>
+                                        <div class="flex gap-2 mt-2">
+                                            <button class="px-3 py-1 bg-cyan-600 text-white rounded text-xs hover:bg-cyan-500">添加内容</button>
+                                            <button class="px-3 py-1 border border-slate-600 text-slate-400 rounded text-xs hover:border-slate-500">忽略</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status Bar -->
+                    <div class="h-8 bg-slate-900 border-t border-slate-800 flex items-center px-4 text-xs text-slate-500">
+                        <div class="flex items-center gap-4">
+                            <span><i class="fas fa-save mr-1"></i>自动保存于 13:42</span>
+                            <span><i class="fas fa-shield-alt mr-1"></i>数据已加密</span>
+                            <span class="text-emerald-500"><i class="fas fa-check-circle mr-1"></i>一致性检查通过</span>
+                        </div>
+                        <div class="ml-auto flex items-center gap-2">
+                            <span>字数: 1,245</span>
+                            <span class="w-px h-3 bg-slate-700"></span>
+                            <span>来源文档: 3</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: AI Assistant & Preview -->
+        <aside class="w-96 glass-panel border-l border-slate-700 flex flex-col">
+            <!-- Tabs -->
+            <div class="flex border-b border-slate-700">
+                <button class="flex-1 py-3 text-sm font-medium text-cyan-400 border-b-2 border-cyan-400 bg-slate-800/30">
+                    <i class="fas fa-robot mr-2"></i>AI助手
+                </button>
+                <button class="flex-1 py-3 text-sm font-medium text-slate-400 hover:text-white transition-colors">
+                    <i class="fas fa-eye mr-2"></i>实时预览
+                </button>
+            </div>
+
+            <!-- AI Chat Interface -->
+            <div class="flex-1 overflow-hidden flex flex-col">
+                <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                    <!-- AI Message -->
+                    <div class="flex gap-3">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-robot text-white text-xs"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-xs text-cyan-400 mb-1">Kimi CSR Assistant</div>
+                            <div class="bg-slate-800/70 rounded-lg p-3 text-sm text-slate-300 border border-slate-700">
+                                已完成Section 10.2的初稿生成，从Protocol和SAP中整合了研究设计信息。检测到以下潜在问题：
+                                <ul class="mt-2 space-y-1 text-xs text-slate-400 list-disc list-inside">
+                                    <li>SAP中的样本量计算(N=300)与Protocol中的描述(N=280)存在差异</li>
+                                    <li>TFLs中的Table 14.1.1尚未关联到Section 11.2.5</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- User Message -->
+                    <div class="flex gap-3 flex-row-reverse">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white">
+                            NB
+                        </div>
+                        <div class="flex-1 text-right">
+                            <div class="bg-slate-700/50 rounded-lg p-3 text-sm text-slate-200 inline-block text-left border border-slate-600">
+                                帮我优化Section 10.2.3的语言表达，使其符合监管申报要求
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Response -->
+                    <div class="flex gap-3">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-robot text-white text-xs"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="text-xs text-cyan-400 mb-1">Kimi CSR Assistant</div>
+                            <div class="bg-slate-800/70 rounded-lg p-3 text-sm text-slate-300 border border-slate-700 space-y-2">
+                                <p class="text-xs text-slate-500">已优化Section 10.2.3（观察期），变化如下：</p>
+                                <div class="space-y-2 text-xs">
+                                    <div class="p-2 bg-red-500/10 border-l-2 border-red-500 rounded text-red-300 line-through">
+                                        观察期设置为4周，这段时间内患者不用药。
+                                    </div>
+                                    <div class="p-2 bg-emerald-500/10 border-l-2 border-emerald-500 rounded text-emerald-300">
+                                        筛选期（Washout Period）设定为4周（28±2天），旨在消除既往降眼压药物的药理效应，确保基线眼压测量不受既往治疗干扰。
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 mt-2">
+                                    <button class="px-3 py-1 bg-emerald-600 text-white rounded text-xs hover:bg-emerald-500">
+                                        <i class="fas fa-check mr-1"></i>应用修改
+                                    </button>
+                                    <button class="px-3 py-1 border border-slate-600 text-slate-400 rounded text-xs">
+                                        查看差异
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Input Area -->
+                <div class="p-4 border-t border-slate-700 bg-slate-900/50">
+                    <div class="relative">
+                        <textarea 
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 pr-12 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:border-cyan-500"
+                            rows="3"
+                            placeholder="输入指令，例如：从Protocol中提取Section 5.1的安全信息添加到Section 10.3..."
+                        ></textarea>
+                        <button class="absolute right-3 bottom-3 p-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-white transition-colors">
+                            <i class="fas fa-paper-plane text-sm"></i>
+                        </button>
+                    </div>
+                    <div class="flex gap-2 mt-2">
+                        <button class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                            <i class="fas fa-wand-magic-sparkles mr-1"></i>生成章节
+                        </button>
+                        <button class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                            <i class="fas fa-search mr-1"></i>查找来源
+                        </button>
+                        <button class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                            <i class="fas fa-language mr-1"></i>翻译
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="p-4 border-t border-slate-700 bg-slate-800/30">
+                <h3 class="text-xs font-semibold text-slate-300 mb-3">生成进度</h3>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-400">Protocol整合</span>
+                            <span class="text-white">85%</span>
+                        </div>
+                        <div class="w-full bg-slate-700 rounded-full h-1.5">
+                            <div class="bg-purple-500 h-1.5 rounded-full" style="width: 85%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-400">SAP数据提取</span>
+                            <span class="text-white">92%</span>
+                        </div>
+                        <div class="w-full bg-slate-700 rounded-full h-1.5">
+                            <div class="bg-blue-500 h-1.5 rounded-full" style="width: 92%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-400">TFLs图表关联</span>
+                            <span class="text-white">45%</span>
+                        </div>
+                        <div class="w-full bg-slate-700 rounded-full h-1.5">
+                            <div class="bg-emerald-500 h-1.5 rounded-full" style="width: 45%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Collaborative Cursor (Simulated) -->
+    <div class="fixed bottom-8 left-1/2 transform -translate-x-1/2 glass-panel px-4 py-2 rounded-full flex items-center gap-3 border border-slate-600 shadow-2xl">
+        <div class="flex -space-x-2">
+            <div class="w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">PM</div>
+            <div class="w-6 h-6 rounded-full bg-gradient-to-r from-pink-500 to-rose-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">RA</div>
+            <div class="w-6 h-6 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 border-2 border-slate-800 flex items-center justify-center text-[10px] text-white font-bold">ME</div>
+        </div>
+        <span class="text-xs text-slate-300">3人在线协作</span>
+        <span class="w-px h-3 bg-slate-600"></span>
+        <span class="text-xs text-emerald-400"><i class="fas fa-circle text-[8px] mr-1"></i>所有更改已同步</span>
+    </div>
+
+    <script>
+        // Simple interactions
+        document.querySelectorAll('.section-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.section-item').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+
+        // Simulate progress
+        setTimeout(() => {
+            const tflProgress = document.querySelector('.progress-bar');
+            if(tflProgress) tflProgress.style.width = '100%';
+        }, 3000);
+    </script>
+
+</body>
+</html>

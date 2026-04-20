@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - csr-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    expose:
+      - "3000"
+    networks:
+      - csr-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    expose:
+      - "8000"
+    volumes:
+      - csr-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/csr.db
+      - UPLOAD_DIR=/app/data/uploads
+      - DEBUG=False
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    networks:
+      - csr-network
+    restart: unless-stopped
+
+volumes:
+  csr-data:
+
+networks:
+  csr-network:
+    driver: bridge
