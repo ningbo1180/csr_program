@@ -3,7 +3,7 @@ Project API routes
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app.models.models import Project, ProjectStatus
 from pydantic import BaseModel
@@ -16,6 +16,9 @@ class ProjectCreate(BaseModel):
     name: str
     description: str = None
     language: str = "zh-CN"
+    study_id: str = None
+    study_phase: str = None
+    indication: str = None
 
 
 class ProjectResponse(BaseModel):
@@ -25,6 +28,9 @@ class ProjectResponse(BaseModel):
     description: str
     status: str
     language: str
+    study_id: Optional[str] = None
+    study_phase: Optional[str] = None
+    indication: Optional[str] = None
     table_orientation: str = "auto"
     dedup_level: str = "strict"
     enable_hyperlink: bool = True
@@ -63,6 +69,9 @@ async def create_project(
         name=project.name,
         description=project.description,
         language=project.language,
+        study_id=project.study_id,
+        study_phase=project.study_phase,
+        indication=project.indication,
         owner_id="system",  # TODO: Get from auth context
         structure_tree={"chapters": []},
     )
@@ -75,6 +84,9 @@ async def create_project(
         "description": db_project.description or "",
         "status": db_project.status.value,
         "language": db_project.language,
+        "study_id": db_project.study_id,
+        "study_phase": db_project.study_phase,
+        "indication": db_project.indication,
         "table_orientation": db_project.table_orientation or "auto",
         "dedup_level": db_project.dedup_level or "strict",
         "enable_hyperlink": db_project.enable_hyperlink if db_project.enable_hyperlink is not None else True,
@@ -100,6 +112,9 @@ async def get_project(
         "description": project.description or "",
         "status": project.status.value,
         "language": project.language,
+        "study_id": project.study_id,
+        "study_phase": project.study_phase,
+        "indication": project.indication,
         "table_orientation": project.table_orientation or "auto",
         "dedup_level": project.dedup_level or "strict",
         "enable_hyperlink": project.enable_hyperlink if project.enable_hyperlink is not None else True,
@@ -121,6 +136,9 @@ async def list_projects(
             "description": p.description or "",
             "status": p.status.value,
             "language": p.language,
+            "study_id": p.study_id,
+            "study_phase": p.study_phase,
+            "indication": p.indication,
             "table_orientation": p.table_orientation or "auto",
             "dedup_level": p.dedup_level or "strict",
             "enable_hyperlink": p.enable_hyperlink if p.enable_hyperlink is not None else True,

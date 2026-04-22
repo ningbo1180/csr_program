@@ -10,7 +10,7 @@ interface VersionHistoryModalProps {
   onRestore: () => void
 }
 
-const API_BASE = ''
+const API_BASE = 'http://localhost:8000'
 
 export default function VersionHistoryModal({ projectId, activeChapter, isOpen, onClose, onRestore }: VersionHistoryModalProps) {
   const [versions, setVersions] = useState<any[]>([])

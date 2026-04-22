@@ -48,6 +48,7 @@ class Document(Base):
     # Relationships
     project = relationship("Project", back_populates="documents")
     action_logs = relationship("ActionLog", back_populates="document")
+    references = relationship("DocumentReference", back_populates="document", cascade="all, delete-orphan")
 
 
 class ProjectStatus(str, enum.Enum):
@@ -67,6 +68,9 @@ class Project(Base):
     description = Column(Text, nullable=True)
     status = Column(Enum(ProjectStatus), default=ProjectStatus.DRAFT)
     owner_id = Column(String, nullable=False)
+    study_id = Column(String, nullable=True)
+    study_phase = Column(String, nullable=True)
+    indication = Column(String, nullable=True)
     structure_tree = Column(JSON, nullable=True)  # CSR 目录结构
     language = Column(String, default="zh-CN")  # 中文、英文或双语
     # AI generation config
@@ -81,6 +85,7 @@ class Project(Base):
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     chapters = relationship("Chapter", back_populates="project", cascade="all, delete-orphan")
     action_logs = relationship("ActionLog", back_populates="project")
+    conversations = relationship("AIConversation", back_populates="project", cascade="all, delete-orphan")
 
 
 class Chapter(Base):
@@ -91,7 +96,8 @@ class Chapter(Base):
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     title = Column(String, nullable=False)
     number = Column(String, nullable=False)  # e.g., "10.2.6"
-    content = Column(Text, nullable=True)
+    content = Column(Text, nullable=True)  # HTML content
+    content_json = Column(JSON, nullable=True)  # TipTap JSON content
     parent_id = Column(String, ForeignKey("chapters.id"), nullable=True)
     order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -102,6 +108,7 @@ class Chapter(Base):
     children = relationship("Chapter", remote_side=[id], backref="parent")
     action_logs = relationship("ActionLog", back_populates="chapter")
     versions = relationship("ChapterVersion", back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterVersion.version_number.desc()")
+    references = relationship("DocumentReference", back_populates="chapter", cascade="all, delete-orphan")
 
 
 class ActionType(str, enum.Enum):
@@ -115,6 +122,7 @@ class ActionType(str, enum.Enum):
     AI_GENERATE = "ai_generate"
     APPLY_SUGGESTION = "apply_suggestion"
     MANUAL_EDIT = "manual_edit"
+    AI_POLISH = "ai_polish"
 
 
 class ChapterVersion(Base):
@@ -124,8 +132,9 @@ class ChapterVersion(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     chapter_id = Column(String, ForeignKey("chapters.id"), nullable=False)
     content = Column(Text, nullable=True)
+    content_json = Column(JSON, nullable=True)
     version_number = Column(Integer, default=1)
-    action_type = Column(String, default="edit")  # edit, ai_generate, restore
+    action_type = Column(String, default="edit")  # edit, ai_generate, restore, ai_polish
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -150,3 +159,39 @@ class ActionLog(Base):
     project = relationship("Project", back_populates="action_logs")
     document = relationship("Document", back_populates="action_logs")
     chapter = relationship("Chapter", back_populates="action_logs")
+
+
+class DocumentReference(Base):
+    """Document reference within a chapter"""
+    __tablename__ = "document_references"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    chapter_id = Column(String, ForeignKey("chapters.id"), nullable=False)
+    document_id = Column(String, ForeignKey("documents.id"), nullable=False)
+    ref_key = Column(String, nullable=False)  # e.g., "[Protocol-1]"
+    section = Column(String, nullable=True)  # e.g., "Section 3.1"
+    excerpt = Column(Text, nullable=True)  # quoted text
+    position = Column(Integer, default=0)  # position in chapter content
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    chapter = relationship("Chapter", back_populates="references")
+    document = relationship("Document", back_populates="references")
+
+
+class AIConversation(Base):
+    """AI conversation history"""
+    __tablename__ = "ai_conversations"
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    chapter_id = Column(String, ForeignKey("chapters.id"), nullable=True)
+    user_message = Column(Text, nullable=False)
+    ai_response = Column(Text, nullable=False)
+    action_type = Column(String, default="chat")  # chat, generate, polish, find_sources, translate
+    suggestions = Column(JSON, nullable=True)
+    extra_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    project = relationship("Project", back_populates="conversations")

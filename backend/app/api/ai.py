@@ -1,14 +1,17 @@
 """
-AI Assistant API routes - Chat, Find Sources, Translate
+AI Assistant API routes - Stage 4
+Enhanced with real Kimi API integration, polish, structured diff, conversation history
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional
 import logging
 import re
+import os
 
 from app.database import get_db
-from app.models.models import Chapter, Project, Document, ActionLog, ActionType
+from app.models.models import Chapter, Project, Document, ActionLog, ActionType, AIConversation
+from app.services.ai_service import get_ai_service
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,7 @@ class ChatResponse(BaseModel):
     """Chat response"""
     reply: str
     suggestions: list = []
+    action_type: str = "chat"
 
 
 class FindSourcesRequest(BaseModel):
@@ -39,9 +43,30 @@ class TranslateRequest(BaseModel):
     target_language: str = "en"  # zh-CN, en
 
 
+class PolishRequest(BaseModel):
+    """Polish chapter request"""
+    chapter_id: str
+    style: str = "professional"  # professional, concise, detailed, academic
+    instructions: Optional[str] = None
+
+
+class PolishResponse(BaseModel):
+    """Polish response with diff"""
+    original: str
+    polished: str
+    diff_blocks: list  # structured diff for frontend rendering
+    reasoning: str
+
+
+class CommandRequest(BaseModel):
+    """Quick command request"""
+    command: str  # "/generate", "/find-sources", "/polish", "/translate"
+    chapter_id: Optional[str] = None
+    extra_data: Optional[dict] = None
+
+
 def _extract_keywords(text: str) -> list:
     """Extract keywords from user message"""
-    # Simple keyword extraction - remove common stop words
     stop_words = {'的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这'}
     words = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z]+', text.lower())
     keywords = [w for w in words if w not in stop_words and len(w) > 1]
@@ -86,38 +111,64 @@ def _build_context(db: Session, project_id: str, chapter_id: Optional[str] = Non
     return context
 
 
+def _create_diff_blocks(original: str, polished: str) -> list:
+    """Create structured diff blocks from original and polished text"""
+    # Simple implementation: split into paragraphs and compare
+    orig_paras = [p.strip() for p in re.split(r'</?p>', original) if p.strip()]
+    polish_paras = [p.strip() for p in re.split(r'</?p>', polished) if p.strip()]
+    
+    blocks = []
+    max_len = max(len(orig_paras), len(polish_paras))
+    
+    for i in range(max_len):
+        if i < len(orig_paras) and i < len(polish_paras):
+            if orig_paras[i] == polish_paras[i]:
+                blocks.append({"type": "keep", "text": orig_paras[i]})
+            else:
+                blocks.append({"type": "remove", "text": orig_paras[i]})
+                blocks.append({"type": "add", "text": polish_paras[i]})
+        elif i < len(orig_paras):
+            blocks.append({"type": "remove", "text": orig_paras[i]})
+        else:
+            blocks.append({"type": "add", "text": polish_paras[i]})
+    
+    return blocks
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def ai_chat(
     project_id: str,
     request: ChatRequest,
     db: Session = Depends(get_db)
 ):
-    """AI chat assistant"""
+    """AI chat assistant with conversation history - uses real Kimi API when available"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    msg = request.message.strip().lower()
-    keywords = _extract_keywords(request.message)
     context = _build_context(db, project_id, request.chapter_id)
+    chapter_info = context.get("chapter")
     
-    # Intent detection + response generation
-    reply = ""
-    suggestions = []
+    ai_service = get_ai_service()
+    result = ai_service.chat(request.message, context, chapter_info)
     
+    reply = result["reply"]
+    suggestions = result.get("suggestions", [])
+    action_type = result.get("action_type", "chat")
+    
+    # Override with local intent detection for better UX
+    msg = request.message.strip().lower()
     if any(k in msg for k in ["生成", "create", "generate", "写"]):
-        reply = f"我可以帮您生成 `{(context.get('chapter') or {}).get('title', '当前章节')}` 的内容。\n\n"
-        reply += "基于您上传的文档，我将：\n"
-        reply += "1. 从 Protocol 中提取研究设计信息\n"
-        reply += "2. 从 SAP 中获取统计分析计划\n"
-        reply += "3. 整合 TFLs 中的图表数据\n\n"
-        reply += "请点击右侧的「生成章节」按钮开始生成。"
         suggestions = ["生成章节", "查看研究设计", "检查数据来源"]
-    
+        action_type = "generate"
+    elif any(k in msg for k in ["润色", "polish", "优化", "改进", "refine"]):
+        suggestions = ["一键润色", "专业风格", "简洁风格"]
+        action_type = "polish"
     elif any(k in msg for k in ["来源", "source", "reference", "ref", "引用"]):
         docs = context.get("documents", [])
         protocol_docs = [d for d in docs if d.get("type") == "protocol"]
         sap_docs = [d for d in docs if d.get("type") == "sap"]
+        keywords = _extract_keywords(request.message)
         
         reply = "根据您上传的文档，以下是相关来源：\n\n"
         if protocol_docs:
@@ -131,45 +182,29 @@ async def ai_chat(
         else:
             reply += f"关键词 `{', '.join(keywords)}` 的相关内容可以在上述文档中找到。"
         suggestions = ["查找更多来源", "生成引用", "查看文档详情"]
-    
-    elif any(k in msg for k in ["翻译", "translate", "english", "中文"]):
-        reply = "我可以帮您翻译章节内容。\n\n"
-        reply += "支持的翻译方向：\n"
-        reply += "- 中文 → 英文\n"
-        reply += "- 英文 → 中文\n"
-        reply += "- 中英双语对照\n\n"
-        reply += "请点击「翻译」按钮，或告诉我您需要翻译的具体内容。"
-        suggestions = ["翻译当前章节", "中英双语", "翻译为英文"]
-    
-    elif any(k in msg for k in ["检查", "check", "一致性", "consistency"]):
-        reply = "正在进行一致性检查...\n\n"
-        reply += "✅ Protocol 与研究方案一致\n"
-        reply += "✅ SAP 中的统计方法与终点定义匹配\n"
-        reply += "⚠️  发现 2 处潜在不一致：\n"
-        reply += "   1. 纳入标准 3.1 中年龄范围在 Protocol 和 CSR 模板中存在差异\n"
-        reply += "   2. 主要终点时间点描述需要统一\n\n"
-        reply += "建议：请核对 Protocol 第 4.1 节和 SAP 第 2.3 节的相关描述。"
-        suggestions = ["查看差异详情", "自动修复", "忽略警告"]
-    
+        action_type = "find_sources"
     elif any(k in msg for k in ["帮助", "help", "怎么", "如何", "what"]):
         reply = "我可以帮您完成以下任务：\n\n"
         reply += "📝 **生成内容** — 基于文档自动生成章节初稿\n"
+        reply += "✨ **一键润色** — 优化语言表达和专业性\n"
         reply += "🔍 **查找来源** — 在已上传文档中定位引用来源\n"
         reply += "🌐 **翻译** — 中英文互译或生成双语版本\n"
         reply += "✅ **一致性检查** — 跨文档检查数据一致性\n"
         reply += "📊 **整合数据** — 将 TFLs 图表嵌入 CSR 章节\n\n"
         reply += "请直接输入您的需求，或点击下方的快捷按钮。"
-        suggestions = ["生成章节", "查找来源", "翻译内容"]
+        suggestions = ["生成章节", "一键润色", "查找来源"]
+        action_type = "help"
     
-    else:
-        reply = f"收到您的消息：「{request.message}」\n\n"
-        reply += "我是 CSR 智能助手，专注于帮助您：\n"
-        reply += "- 生成和编辑 CSR 章节内容\n"
-        reply += "- 在 Protocol/SAP/TFLs 中查找引用来源\n"
-        reply += "- 检查文档间的一致性\n"
-        reply += "- 翻译和格式化内容\n\n"
-        reply += "请告诉我您需要做什么，或输入「帮助」查看可用功能。"
-        suggestions = ["帮助", "生成章节", "查找来源"]
+    # Save conversation to database
+    conversation = AIConversation(
+        project_id=project_id,
+        chapter_id=request.chapter_id,
+        user_message=request.message,
+        ai_response=reply,
+        action_type=action_type,
+        suggestions=suggestions
+    )
+    db.add(conversation)
     
     # Log AI interaction
     action_log = ActionLog(
@@ -178,12 +213,12 @@ async def ai_chat(
         user_id="system",
         action_type=ActionType.APPLY_SUGGESTION,
         description=f"AI chat: {request.message[:50]}",
-        extra_data={"query": request.message, "reply_preview": reply[:100]}
+        extra_data={"query": request.message, "reply_preview": reply[:100], "action_type": action_type}
     )
     db.add(action_log)
     db.commit()
     
-    return {"reply": reply, "suggestions": suggestions}
+    return {"reply": reply, "suggestions": suggestions, "action_type": action_type}
 
 
 @router.post("/find-sources")
@@ -258,7 +293,7 @@ async def translate_text(
     
     target = request.target_language
     
-    # Simple rule-based translation simulation for common CSR phrases
+    # Enhanced rule-based translation simulation for common CSR phrases
     translations = {
         "zh-en": {
             "研究目的": "Study Objective",
@@ -278,6 +313,9 @@ async def translate_text(
             "试验组": "Treatment Group",
             "知情同意": "Informed Consent",
             "伦理委员会": "Ethics Committee",
+            "基线特征": "Baseline Characteristics",
+            "疗效分析": "Efficacy Analysis",
+            "安全性分析": "Safety Analysis",
         },
         "en-zh": {
             "Study Objective": "研究目的",
@@ -297,6 +335,9 @@ async def translate_text(
             "Treatment Group": "试验组",
             "Informed Consent": "知情同意",
             "Ethics Committee": "伦理委员会",
+            "Baseline Characteristics": "基线特征",
+            "Efficacy Analysis": "疗效分析",
+            "Safety Analysis": "安全性分析",
         }
     }
     
@@ -321,4 +362,159 @@ async def translate_text(
         "original": text,
         "translated": translated,
         "target_language": target,
+    }
+
+
+@router.post("/polish", response_model=PolishResponse)
+async def polish_chapter(
+    project_id: str,
+    request: PolishRequest,
+    db: Session = Depends(get_db)
+):
+    """Polish chapter content with real Kimi API integration"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    chapter = db.query(Chapter).filter(
+        Chapter.id == request.chapter_id,
+        Chapter.project_id == project_id
+    ).first()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    
+    original = chapter.content or ""
+    
+    # Use real Kimi API for polishing
+    ai_service = get_ai_service()
+    polished = ai_service.polish_content(original, request.style, request.instructions)
+    
+    # Create structured diff blocks
+    diff_blocks = _create_diff_blocks(original, polished)
+    
+    reasoning = f"根据「{request.style}」风格对章节进行了润色：\n"
+    if ai_service.is_available():
+        reasoning += "1. 使用Kimi AI进行了智能润色\n"
+    else:
+        reasoning += "1. 优化了专业术语的表达（模拟模式）\n"
+    reasoning += "2. 调整了句式结构以符合CSR规范\n"
+    reasoning += "3. 确保语言的一致性和准确性"
+    
+    if request.instructions:
+        reasoning += f"\n4. 额外遵循了用户的特殊要求：{request.instructions}"
+    
+    # Log the polish action
+    action_log = ActionLog(
+        project_id=project_id,
+        chapter_id=chapter.id,
+        user_id="system",
+        action_type=ActionType.AI_POLISH,
+        description=f"AI polished chapter: {chapter.number} {chapter.title} ({request.style} style)",
+        extra_data={"style": request.style, "instructions": request.instructions, "api_used": ai_service.is_available()}
+    )
+    db.add(action_log)
+    db.commit()
+    
+    return {
+        "original": original,
+        "polished": polished,
+        "diff_blocks": diff_blocks,
+        "reasoning": reasoning
+    }
+
+
+@router.post("/command")
+async def execute_command(
+    project_id: str,
+    request: CommandRequest,
+    db: Session = Depends(get_db)
+):
+    """Execute quick command (slash commands)"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    cmd = request.command.lower().lstrip('/')
+    
+    if cmd in ["generate", "生成"]:
+        if not request.chapter_id:
+            return {"reply": "请先在左侧选择要生成的章节", "type": "error"}
+        # Delegate to chapter generation endpoint
+        return {
+            "reply": "正在生成章节内容...",
+            "type": "generate",
+            "chapter_id": request.chapter_id,
+            "redirect_endpoint": f"/api/chapters/{project_id}/{request.chapter_id}/generate"
+        }
+    
+    elif cmd in ["polish", "润色"]:
+        if not request.chapter_id:
+            return {"reply": "请先在左侧选择要润色的章节", "type": "error"}
+        return {
+            "reply": "正在润色章节内容...",
+            "type": "polish",
+            "chapter_id": request.chapter_id,
+            "redirect_endpoint": f"/api/ai/polish"
+        }
+    
+    elif cmd in ["find-sources", "来源", "查找来源"]:
+        query = request.extra_data.get("query", "") if request.extra_data else ""
+        return {
+            "reply": f"正在查找与「{query}」相关的来源...",
+            "type": "find_sources",
+            "query": query,
+            "redirect_endpoint": "/api/ai/find-sources"
+        }
+    
+    elif cmd in ["translate", "翻译"]:
+        text = request.extra_data.get("text", "") if request.extra_data else ""
+        target = request.extra_data.get("target_language", "en") if request.extra_data else "en"
+        return {
+            "reply": "正在翻译...",
+            "type": "translate",
+            "text": text,
+            "target_language": target,
+            "redirect_endpoint": "/api/ai/translate"
+        }
+    
+    else:
+        return {
+            "reply": f"未知指令：`/{cmd}`\n\n可用指令：\n/generate — 生成当前章节\n/polish — 一键润色\n/find-sources — 查找来源\n/translate — 翻译内容",
+            "type": "help"
+        }
+
+
+@router.get("/conversations")
+async def get_conversations(
+    project_id: str,
+    chapter_id: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """Get AI conversation history for a project"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    query = db.query(AIConversation).filter(AIConversation.project_id == project_id)
+    if chapter_id:
+        query = query.filter(AIConversation.chapter_id == chapter_id)
+    
+    conversations = query.order_by(AIConversation.created_at.desc()).limit(limit).all()
+    
+    return {
+        "project_id": project_id,
+        "chapter_id": chapter_id,
+        "conversations": [
+            {
+                "id": c.id,
+                "user_message": c.user_message,
+                "ai_response": c.ai_response,
+                "action_type": c.action_type,
+                "suggestions": c.suggestions,
+                "created_at": c.created_at.isoformat()
+            }
+            for c in conversations
+        ]
     }

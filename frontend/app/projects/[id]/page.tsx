@@ -8,7 +8,7 @@ import CenterPanel from '@/components/CenterPanel'
 import RightPanel from '@/components/RightPanel'
 import VersionHistoryModal from '@/components/VersionHistoryModal'
 
-const API_BASE = ''
+const API_BASE = 'http://localhost:8000'
 
 export default function ProjectWorkspace() {
   const params = useParams()
@@ -24,6 +24,7 @@ export default function ProjectWorkspace() {
   const [projectStatus, setProjectStatus] = useState<any>(null)
   const [showVersionModal, setShowVersionModal] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [pendingDiff, setPendingDiff] = useState<{ blocks: any[], reasoning: string, polished: string } | null>(null)
 
   // Load project data
   const loadProject = useCallback(async () => {
@@ -117,13 +118,15 @@ export default function ProjectWorkspace() {
     setActiveChapter(chapter)
   }
 
-  const handleContentUpdate = async (content: string) => {
+  const handleContentUpdate = async (content: string, contentJson?: any) => {
     if (!activeChapter || !projectId) return
     try {
+      const body: any = { content }
+      if (contentJson) body.content_json = contentJson
       const res = await fetch(`${API_BASE}/api/chapters/${projectId}/${activeChapter.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         setActiveChapter({ ...activeChapter, content })
@@ -165,6 +168,10 @@ export default function ProjectWorkspace() {
     loadTree()
     loadLogs()
     loadStatus()
+  }
+
+  const handlePolishComplete = (diffData: { blocks: any[], reasoning: string, polished: string }) => {
+    setPendingDiff(diffData)
   }
 
   const handleExport = async () => {
@@ -239,6 +246,11 @@ export default function ProjectWorkspace() {
           onChapterSelect={handleChapterSelect}
           onContentUpdate={handleContentUpdate}
           onTreeChange={handleTreeChange}
+          onTitleChange={(chapterId, newTitle) => {
+            if (activeChapter?.id === chapterId) {
+              setActiveChapter({ ...activeChapter, title: newTitle })
+            }
+          }}
         />
 
         <RightPanel
@@ -256,6 +268,7 @@ export default function ProjectWorkspace() {
                 .then(data => { if (data) setActiveChapter(data) })
             }
           }}
+          onPolishComplete={handlePolishComplete}
         />
       </div>
 

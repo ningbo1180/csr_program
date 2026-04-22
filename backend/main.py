@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from app.database import init_db
-from app.api import projects, documents, chapters, logs, ai, export
+from app.api import projects, documents, chapters, logs, ai, export, references
 
 # Configure logging
 logging.basicConfig(
@@ -58,6 +58,7 @@ app.include_router(chapters.router)
 app.include_router(logs.router)
 app.include_router(ai.router)
 app.include_router(export.router)
+app.include_router(references.router)
 
 
 @app.get("/health")
